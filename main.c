@@ -159,7 +159,12 @@ driver_rc gesture_sensor_read(uint8_t reg_address, uint8_t* data)
     return DRIVER_SUCCESS;
 
 }
+void gesture_sensor_interrupt_handler()
+{
+    GPIOIntClear(GPIO_PORTL_BASE, GPIO_PIN_5);
+    UARTprintf("\n\r u");
 
+}
 // Main function
 int main(void)
 {
@@ -201,12 +206,59 @@ int main(void)
     gesture_sensor_read(PDATA_ADDRESS, &data);
     UARTprintf("\r\n pdata value 0x%x",data);*/
 
+    /* interrupts stuff */
+
+    /* first configure the pin as input */
+    GPIOPinTypeGPIOInput(GPIO_PORTL_BASE, GPIO_PIN_5);
+
+    /* start by enabling the master interrupt */
+    IntMasterEnable();
+
+    /* define the handler for the GPIO interrupt */
+    GPIOIntRegister(GPIO_PORTL_BASE, gesture_sensor_interrupt_handler);
+
+    /* set the type of interrupt */
+    GPIOIntTypeSet(GPIO_PORTL_BASE, GPIO_PIN_5, GPIO_RISING_EDGE);
+
+    /* then enable interrupts for PIN 5 on Port L */
+    GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
+
     /*Gesture Sensor*/
     uint8_t enable_gesture_cmd=0x45;
-    gesture_sensor_write(ENABLE_REG_ADDRESS,enable_gesture_cmd);
+
+    gesture_sensor_write(ENABLE_REG_ADDRESS, enable_gesture_cmd);
+
     uint8_t data;
     gesture_sensor_read(ENABLE_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture value 0x%x",data);
+    UARTprintf("\r\nValue written to the enable reg:0x%x",data);
+
+    /* do not exit out of the gesture engine again */
+    uint8_t stay_in_gesture_mode_forever=0;
+
+    gesture_sensor_write(EXIT_THRESHOLD_REG_ADDRESS, stay_in_gesture_mode_forever);
+
+    gesture_sensor_read(GESTURE_CONFIG_ONE_REG_ADDRESS, &data);
+    UARTprintf("\r\nValue at the gesture config one reg:0x%x",data);
+
+    /* OR this value with the FIFO threshold level value */
+    /* set it to three for 16 data-sets to be stored in the FIFO */
+    uint8_t fifo_thresh_val=3;
+    /* seeing as how this value needs to be written to bits 6:7, it requires to be left shifted by 6 */
+    data=data|(fifo_thresh_val<<6);
+
+    gesture_sensor_write(GESTURE_CONFIG_ONE_REG_ADDRESS, data);
+    UARTprintf("\r\nValue OR'd with the byte read: 0x%x", fifo_thresh_val<<6);
+
+    UARTprintf("\r\nValue written to the config one reg: 0x%x",data);
+
+    gesture_sensor_read(GESTURE_CONFIG_ONE_REG_ADDRESS, &data);
+
+    UARTprintf("\r\nValue at the gesture config one reg post writing to it:0x%x",data);
+
+    uint8_t gesture_mode=0x03;
+    gesture_sensor_write(GESTURE_MODE_REG_ADDRESS,gesture_mode);
+    gesture_sensor_read(GESTURE_MODE_REG_ADDRESS, &data);
+    UARTprintf("\r\ngesture MODE value 0x%x",data);
     //GCONFIG4<GMODE>
 
     /*uint8_t gesture_mode=0x01;
@@ -234,6 +286,15 @@ int main(void)
 
     gesture_sensor_read(GESTURE_FIFO_LEVEL, &data);
     UARTprintf("\r\ngesture LEVEL value 0x%x",data);
+    while(1){
+        SysCtlDelay(1000);
+        gesture_sensor_read(GESTURE_FIFO_LEVEL, &data);
+        UARTprintf("\r\ngesture LEVEL value 0x%x",data);
+        gesture_sensor_read(GESTURE_STATUS_ADDRESS, &data);
+        UARTprintf("\r\ngesture STATUS value 0x%x",data);
+
+
+    }
 }
 
 /*void demoSerialTask(void *pvParameters)
