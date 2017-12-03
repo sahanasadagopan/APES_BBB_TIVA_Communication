@@ -13,7 +13,7 @@
 #include "main.h"
 #include "drivers/pinout.h"
 #include "utils/uartstdio.h"
-#include "I2C.h"
+#include "I2C_new.h"
 
 // TivaWare includes
 #include "driverlib/sysctl.h"
@@ -33,7 +33,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
-
+#include "gesture_sensor.h"
 #define LSM6DS3_ADDR        (0x6A)
 #define TMP102_ADDR         (0x48)
 
@@ -45,137 +45,39 @@
 //void demoI2CTask(void *pvParameters);
 void demoSerialTask(void *pvParameters);
 
-int I2C_Init(void)
-{
-    // The I2C2 peripheral must be enabled before use.
-        // On GPIO PortL
-        ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOL);
-
-        //
-        // Wait for the Peripheral to be ready for programming
-        //
-        while(!ROM_SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOL));
-
-        //
-        // Configure the pin muxing for I2C2 functions on port L0 and L1.
-        // This step is not necessary if your part does not support pin muxing.
-        //
-        ROM_GPIOPinConfigure(GPIO_PL1_I2C2SCL);
-        ROM_GPIOPinConfigure(GPIO_PL0_I2C2SDA);
-
-        //
-        // Select the I2C function for these pins.  This function will also
-        // configure the GPIO pins pins for I2C operation, setting them to
-        // open-drain operation with weak pull-ups.  Consult the data sheet
-        // to see which functions are allocated per pin.
-        //
-        ROM_GPIOPinTypeI2C(GPIO_PORTL_BASE, GPIO_PIN_0);
-        GPIOPinTypeI2CSCL(GPIO_PORTL_BASE, GPIO_PIN_1);
-
-        ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C2);
-        ROM_SysCtlPeripheralReset(SYSCTL_PERIPH_I2C2);
-        ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C2);
-        while(!ROM_SysCtlPeripheralReady(SYSCTL_PERIPH_I2C2));
-        ROM_I2CMasterInitExpClk(I2C2_BASE,SYSTEM_CLOCK,true);
-
-        return 0;
-}
-void I2C_write(uint8_t slave_address, uint8_t data_write){
-
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,false);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_BURST_SEND_START);
-    ROM_I2CMasterDataPut(I2C2_BASE, data_write);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-
-}
-
-
-void I2C_write_single(uint8_t slave_address, uint8_t data_write)
-{
-
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,false);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_SINGLE_SEND);
-    ROM_I2CMasterDataPut(I2C2_BASE, data_write);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-
-}
-
-void I2C_write_temp(uint8_t slave_address, uint8_t data_write)
-{
-
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,false);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_BURST_SEND_FINISH);
-    ROM_I2CMasterDataPut(I2C2_BASE, data_write);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-}
-
-driver_rc I2C_read_word(uint8_t slave_address, uint16_t* data_recv)
-{
-    if(data_recv==NULL)
-        return DRIVER_I2C_READ_NULL_PTR;
-
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,true);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_BURST_RECEIVE_START);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-    *((uint8_t*)data_recv) = ROM_I2CMasterDataGet(I2C2_BASE);
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,true);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_BURST_RECEIVE_FINISH);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-    *((uint8_t*)data_recv + 1) = ROM_I2CMasterDataGet(I2C2_BASE);
-    return DRIVER_SUCCESS;
-}
-
-
-driver_rc I2C_read_byte(uint8_t slave_address, uint8_t* data_recv)
-{
-    if(data_recv==NULL)
-        return DRIVER_I2C_READ_NULL_PTR;
-
-    ROM_I2CMasterSlaveAddrSet(I2C2_BASE,slave_address,true);
-    ROM_I2CMasterControl(I2C2_BASE,I2C_MASTER_CMD_SINGLE_RECEIVE);
-    while(ROM_I2CMasterBusy(I2C2_BASE));
-    *(data_recv) = ROM_I2CMasterDataGet(I2C2_BASE);
-    //UARTprintf("\r\n1st value 0x%x",*data_recv);
-    return DRIVER_SUCCESS;
-}
-
-driver_rc gesture_sensor_write(uint8_t reg_address, uint8_t data)
-{
-    /**/
-    I2C_write(SLAVE_ADDR_GESTURE,reg_address);
-
-    I2C_write_temp(SLAVE_ADDR_GESTURE,data);
-
-    return DRIVER_SUCCESS;
-
-}
-
-driver_rc gesture_sensor_read(uint8_t reg_address, uint8_t* data)
-{
-    I2C_write_single(SLAVE_ADDR_GESTURE,reg_address);
-
-    I2C_read_byte(SLAVE_ADDR_GESTURE, data);
-
-    return DRIVER_SUCCESS;
-
-}
 void gesture_sensor_interrupt_handler()
 {
+    /* clear pending interrupts on the sensor */
+    /* any value written to the PICLEAR reg is good to clear interrupts */
+   // uint8_t random_val=10;
+   // gesture_sensor_write(PROXIMITY_INTERRUPT_CLEAR, random_val);
+
+    /* clear pending interrupts locally */
     GPIOIntClear(GPIO_PORTL_BASE, GPIO_PIN_5);
-    UARTprintf("\n\r u");
+
+
+    /* read from the proximity register */
+    uint8_t pdata_val=0;
+    gesture_sensor_read(PDATA_ADDRESS, &pdata_val);
+    /* print value on the UART terminal */
+    UARTprintf("\r\nvalue:0x%x", pdata_val);
 
 }
+
+
 // Main function
 int main(void)
 {
     uint32_t output_clock_rate_hz;
+
     output_clock_rate_hz=ROM_SysCtlClockFreqSet(
             (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
              SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
             SYSTEM_CLOCK);
+
     ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
     // Initialize the GPIO pins for the Launchpad
-   PinoutSet(false, false);
+    PinoutSet(false, false);
 
    // Create demo task
 
@@ -184,27 +86,14 @@ int main(void)
 
   // vTaskStartScheduler();
     UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
-    UARTprintf("\n\rconfig reg is");
-    int busy=I2C_Init();
+    I2C_Init();
+
     /*uint8_t data_write=0x01;
     I2C_write(TMP102_ADDR,data_write);
     uint16_t datarecv;
     I2C_read(TMP102_ADDR,&datarecv);
     UARTprintf("\r\n1st value 0x%x",*((uint8_t*)&datarecv));
     UARTprintf("\r\n2nd value 0x%x",*((uint8_t*)&datarecv + 1));*/
-
-
-
-    /*proximity sensor*/
-   /* gesture_sensor_write(ENABLE_REG_ADDRESS, 5);
-    uint8_t data;
-    gesture_sensor_read(ENABLE_REG_ADDRESS, &data);
-
-    UARTprintf("\r\n1st value 0x%x",data);
-
-    data=0;
-    gesture_sensor_read(PDATA_ADDRESS, &data);
-    UARTprintf("\r\n pdata value 0x%x",data);*/
 
     /* interrupts stuff */
 
@@ -223,6 +112,54 @@ int main(void)
     /* then enable interrupts for PIN 5 on Port L */
     GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
 
+
+    /* set a persistence of 10 cycles so that false interrupts are not triggered */
+
+    uint8_t persistence_cycles=0xA0;
+    gesture_sensor_write(PERSISTENCE_REG_ADDRESS, persistence_cycles);
+    persistence_cycles=0;
+    gesture_sensor_read(PERSISTENCE_REG_ADDRESS, &persistence_cycles);
+
+    UARTprintf("\r\nPersistence cycles 0x%x",persistence_cycles);
+
+    /* set upper and lower threshold values */
+
+    uint8_t lower_threshold=0, upper_threshold=10;
+
+    gesture_sensor_write(PIHT_REG_ADDRESS , upper_threshold);
+    upper_threshold=0;
+    gesture_sensor_read(PIHT_REG_ADDRESS, &upper_threshold);
+
+    gesture_sensor_write(PILT_REG_ADDRESS , lower_threshold);
+
+    gesture_sensor_read(PILT_REG_ADDRESS, &lower_threshold);
+
+    UARTprintf("\r\nLower threshold 0x%x",lower_threshold);
+    UARTprintf("\r\nUpper threshold 0x%x",upper_threshold);
+
+    /* have a wait time between cycles */
+    /* a wait time value of 171 will translate to 236 ms of wait time between read cycles */
+    uint8_t wait_time=171;
+
+    gesture_sensor_write(WAIT_TIME_REG_ADDRESS, wait_time);
+    gesture_sensor_read(WAIT_TIME_REG_ADDRESS, &wait_time);
+
+    UARTprintf("\r\nWait time 0x%x", wait_time);
+
+    /* power on and enable the proximity sensor; also enable the proximity interrupt and wait time between cycles */
+
+    uint8_t enable_proximity=0x2D;
+
+    gesture_sensor_write(ENABLE_REG_ADDRESS, enable_proximity);
+
+    gesture_sensor_read(ENABLE_REG_ADDRESS, &enable_proximity);
+
+    UARTprintf("\r\nEnable reg value 0x%x", enable_proximity);
+
+    /* wait for an interrupt here */
+    while(1);
+
+#ifdef GESTURE_MODE
     /*Gesture Sensor*/
     uint8_t enable_gesture_cmd=0x45;
 
@@ -233,12 +170,12 @@ int main(void)
     UARTprintf("\r\nValue written to the enable reg:0x%x",data);
 
     /* do not exit out of the gesture engine again */
-    uint8_t stay_in_gesture_mode_forever=0;
+    //uint8_t stay_in_gesture_mode_forever=0;
 
-    gesture_sensor_write(EXIT_THRESHOLD_REG_ADDRESS, stay_in_gesture_mode_forever);
+    //gesture_sensor_write(EXIT_THRESHOLD_REG_ADDRESS, stay_in_gesture_mode_forever);
 
-    gesture_sensor_read(GESTURE_CONFIG_ONE_REG_ADDRESS, &data);
-    UARTprintf("\r\nValue at the gesture config one reg:0x%x",data);
+    //gesture_sensor_read(GESTURE_CONFIG_ONE_REG_ADDRESS, &data);
+   //UARTprintf("\r\nValue at the gesture config one reg:0x%x",data);
 
     /* OR this value with the FIFO threshold level value */
     /* set it to three for 16 data-sets to be stored in the FIFO */
@@ -256,8 +193,8 @@ int main(void)
     UARTprintf("\r\nValue at the gesture config one reg post writing to it:0x%x",data);
 
     uint8_t gesture_mode=0x03;
-    gesture_sensor_write(GESTURE_MODE_REG_ADDRESS,gesture_mode);
-    gesture_sensor_read(GESTURE_MODE_REG_ADDRESS, &data);
+    gesture_sensor_write(GESTURE_CONFIG4_REG_ADDRESS,gesture_mode);
+    gesture_sensor_read(GESTURE_CONFIG4_REG_ADDRESS, &data);
     UARTprintf("\r\ngesture MODE value 0x%x",data);
     //GCONFIG4<GMODE>
 
@@ -268,33 +205,55 @@ int main(void)
 
     //gesture_sensor_read(GPENTH_ADDRESS, &data);
     //UARTprintf("\r\ngesture PLENGTH value 0x%x",data);
+ //   uint8_t check_array[4][32];
 
-    gesture_sensor_read(GESTURE_UP_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture up value 0x%x",data);
-
-    gesture_sensor_read(GESTURE_DOWN_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture DOWN value 0x%x",data);
-
-    gesture_sensor_read(GESTURE_DIMEN_ADDRESS, &data);
+    gesture_sensor_read(GESTURE_CONFIG3_REG_ADDRESS, &data);
     UARTprintf("\r\ngesture DIMEN value 0x%x",data);
 
-    gesture_sensor_read(GESTURE_LEFT_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture LEFT value 0x%x",data);
-
-    gesture_sensor_read(GESTURE_RIGHT_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture RIGHT value 0x%x",data);
 
     gesture_sensor_read(GESTURE_FIFO_LEVEL, &data);
     UARTprintf("\r\ngesture LEVEL value 0x%x",data);
-    while(1){
-        SysCtlDelay(1000);
+    gesture_sensor_read(GESTURE_STATUS_ADDRESS, &data);
+    UARTprintf("\r\ngesture STATUS value 0x%x",data);
+    gesture_sensor_read(SENSOR_STATUS_REG, &data);
+    UARTprintf("\r\ngesture Sensor automatic assert STATUS value 0x%x",data);
+    uint8_t fifo_level=0, i;
+
+    while(1)
+    {
+        SysCtlDelay(25000000);
+
         gesture_sensor_read(GESTURE_FIFO_LEVEL, &data);
         UARTprintf("\r\ngesture LEVEL value 0x%x",data);
-        gesture_sensor_read(GESTURE_STATUS_ADDRESS, &data);
-        UARTprintf("\r\ngesture STATUS value 0x%x",data);
 
+        fifo_level=data;
 
+        for(i=0;i<fifo_level;i++)
+        {
+
+          //  UARTprintf("\r\ngesture LEVEL FIFO value 0x%x",data);
+
+            gesture_sensor_read(GESTURE_UP_REG_ADDRESS, &data);
+            UARTprintf("\r\ngesture up value 0x%x",data);
+           // check_array[0][i]=data;
+
+            gesture_sensor_read(GESTURE_DOWN_REG_ADDRESS, &data);
+            UARTprintf("\r\ngesture DOWN value 0x%x",data);
+         //   check_array[1][i]=data;
+
+            gesture_sensor_read(GESTURE_LEFT_REG_ADDRESS, &data);
+            UARTprintf("\r\ngesture LEFT value 0x%x",data);
+           // check_array[2][i]=data;
+
+            gesture_sensor_read(GESTURE_RIGHT_REG_ADDRESS, &data);
+            UARTprintf("\r\ngesture RIGHT value 0x%x",data);
+            //check_array[3][i]=data;
+
+            i++;
+        }
     }
+#endif
+
 }
 
 /*void demoSerialTask(void *pvParameters)
