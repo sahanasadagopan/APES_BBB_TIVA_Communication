@@ -5,7 +5,7 @@
  * Andy Kobyljanec
  *
  * This is a simple demonstration project of FreeRTOS 8.2 on the Tiva Launchpad
- * EK-TM4C1294XL.  TivaWare driverlib sourcecode is included.
+ * EK-TM4C1294XL.  TivaWare driverlib source code is included.
  */
 
 #include <stdint.h>
@@ -33,6 +33,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "queue.h"
+#include "semphr.h"
 #include "gesture_sensor.h"
 #define LSM6DS3_ADDR        (0x6A)
 #define TMP102_ADDR         (0x48)
@@ -41,9 +43,194 @@
 // Global instance structure for the I2C master driver.
 //tI2CMInstance g_sI2CInst;
 
+
+
 // Demo Task declarations
-//void demoI2CTask(void *pvParameters);
-void demoSerialTask(void *pvParameters);
+void HeartBeatChecker(void *pvParameters);
+void SensorTask(void *pvParameters);
+void LCDTask(void *pvParameters);
+
+SemaphoreHandle_t UartProtector;
+
+TaskHandle_t TaskHandle[TOTAL_NUMBER_OF_TASKS];
+
+// Main function
+int main(void)
+{
+    // Initialize system clock to 120 MHz
+    uint32_t output_clock_rate_hz;
+    output_clock_rate_hz = ROM_SysCtlClockFreqSet(
+                               (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
+                                SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
+                               SYSTEM_CLOCK);
+    ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
+
+    // Set up the UART which is connected to the virtual COM port
+    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
+
+    // Initialize the GPIO pins for the Launchpad
+    PinoutSet(false, false);
+
+    BaseType_t xTaskCreateReturn;
+
+    UartProtector=xSemaphoreCreateMutex();
+
+    /* Create all the tasks required */
+    /* send the heart beat task's handle info as an argument */
+    xTaskCreateReturn=xTaskCreate(HeartBeatChecker, (const portCHAR *)"HeartBeat",
+                   configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[HEARTBEAT_TASK] );
+
+    UARTprintf("\r\nHB handle val:%d", TaskHandle[HEARTBEAT_TASK]);
+
+    if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
+        UARTprintf("\r\nHB task creation failed");
+
+    xTaskCreateReturn=xTaskCreate(SensorTask, (const portCHAR *)"Sensor",
+                configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[SENSOR_TASK]);
+
+    if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
+            UARTprintf("\r\nSensor task creation failed");
+
+    xTaskCreateReturn=xTaskCreate(LCDTask, (const portCHAR *)"LCD",
+                configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[LCD_TASK]);
+
+    if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
+            UARTprintf("\r\nLCD task creation failed");
+
+    vTaskStartScheduler();
+
+    return 0;
+}
+
+// Flash the LEDs on the launch pad
+void HeartBeatChecker(void *pvParameters)
+{
+    uint32_t HeartbeatReceived;
+    BaseType_t NotifyWaitReturn;
+
+    /* get heart beats from the tasks created in this loop */
+    while(1)
+    {
+        vTaskDelay(10000);
+
+        /* clear the bits that need to be set by other tasks on exit and get the value written by other tasks */
+        NotifyWaitReturn=xTaskNotifyWait( 0, LCD_TASK_HEARTBEAT|SENSOR_TASK_HEARTBEAT,
+                                  &HeartbeatReceived, pdMS_TO_TICKS(10000) );
+
+        /* Now check if the bits corresponding to each task are set */
+        if(!(HeartbeatReceived&LCD_TASK_HEARTBEAT))
+        {
+            /* let it wait indefinitely until it gets the semaphore;
+             * INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+             * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nHB from LCD missed");
+            xSemaphoreGive(UartProtector);
+        }
+        if(!(HeartbeatReceived&SENSOR_TASK_HEARTBEAT))
+        {
+           /* let it wait indefinitely until it gets the semaphore;
+            *  INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nHB from Sensor missed");
+            xSemaphoreGive(UartProtector);
+        }
+        /* no task is alive */
+        if(NotifyWaitReturn==pdFALSE)
+        {
+           /* let it wait indefinitely until it gets the semaphore;
+            * INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nTimed out:Didn't receive anything, notification val:%d", HeartbeatReceived);
+            xSemaphoreGive(UartProtector);
+
+            /* TODO: Write to the logger here  or set a flag or something which controls log data or data that's sent to the BBG */
+
+        }
+        else
+        {
+           /* let it wait indefinitely until it gets the semaphore;
+            *  INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nNotification val:%d", HeartbeatReceived);
+            xSemaphoreGive(UartProtector);
+        }
+
+    }
+}
+
+/* just flashing some LEDs for now */
+void SensorTask(void *pvParameters)
+{
+    TaskHandle_t HeartBeatHandle=TaskHandle[HEARTBEAT_TASK];
+
+    //BaseType_t TaskNotifyReturn;
+
+    xSemaphoreTake( UartProtector, portMAX_DELAY);
+    UARTprintf("\r\nHB handle val in SensorTask:%d", HeartBeatHandle);
+    xSemaphoreGive(UartProtector);
+
+    for (;;)
+    {
+
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+        /* debug message to the UART logger */
+        UARTprintf("\r\nSent HB from SensorTask");
+        xSemaphoreGive(UartProtector);
+
+        vTaskDelay(5100 );
+        /* notify the HeartBeat task of your well being */
+        /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
+        /* no point in checking the return from this function as it's always going to return successfully */
+        xTaskNotify(HeartBeatHandle, SENSOR_TASK_HEARTBEAT, eSetBits);
+
+
+    }
+}
+
+
+/* just writing to UART for now */
+void LCDTask(void *pvParameters)
+{
+    /* */
+    TaskHandle_t HeartBeatHandle=TaskHandle[HEARTBEAT_TASK];
+
+    xSemaphoreTake(UartProtector, portMAX_DELAY);
+    UARTprintf("\r\nHB handle val in LCDTask:%d", HeartBeatHandle);
+    xSemaphoreGive(UartProtector);
+
+    // BaseType_t TaskNotifyReturn;
+    for (;;)
+    {
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+        UARTprintf("\r\nSent HB from LCD");
+        xSemaphoreGive(UartProtector);
+
+        vTaskDelay(5500);
+
+        /* notify the HeartBeat task of your well being */
+        /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
+        /* no point in checking the return from this function as it's always going to return successfully */
+        xTaskNotify(HeartBeatHandle, LCD_TASK_HEARTBEAT, eSetBits);
+    }
+}
+
+/*  ASSERT() Error function
+ *
+ *  failed ASSERTS() from driverlib/debug.h are executed in this function
+ */
+void __error__(char *pcFilename, uint32_t ui32Line)
+{
+    // Place a breakpoint here to capture errors until logging routine is finished
+    while (1)
+    {
+    }
+}
+
+#ifdef PROXIMITY_STUFF
 
 void gesture_sensor_interrupt_handler()
 {
@@ -63,8 +250,6 @@ void gesture_sensor_interrupt_handler()
     UARTprintf("\r\nvalue:0x%x", pdata_val);
 
 }
-
-
 // Main function
 int main(void)
 {
@@ -79,13 +264,6 @@ int main(void)
     // Initialize the GPIO pins for the Launchpad
     PinoutSet(false, false);
 
-   // Create demo task
-
-  // xTaskCreate(demoSerialTask, (const portCHAR *)"Serial",
-    //           configMINIMAL_STACK_SIZE, NULL, 1, NULL);
-
-  // vTaskStartScheduler();
-    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
     I2C_Init();
 
     /*uint8_t data_write=0x01;
@@ -158,6 +336,7 @@ int main(void)
 
     /* wait for an interrupt here */
     while(1);
+#endif
 
 #ifdef GESTURE_MODE
     /*Gesture Sensor*/
@@ -252,27 +431,7 @@ int main(void)
             i++;
         }
     }
+
+}
 #endif
 
-}
-
-/*void demoSerialTask(void *pvParameters)
-{
-    // Set up the UART which is connected to the virtual COM port
-    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
-
-
-    for (;;)
-    {
-        UARTprintf("\r\nHello, world from FreeRTOS 9.0!");
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
-}*/
-
-void __error__(char *pcFilename, uint32_t ui32Line)
-{
-    // Place a breakpoint here to capture errors until logging routine is finished
-    while (1)
-    {
-    }
-}
