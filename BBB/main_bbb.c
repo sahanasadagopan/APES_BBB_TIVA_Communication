@@ -6,15 +6,21 @@
 #include <arpa/inet.h> 
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
+#include <pthread.h>
 
 #define PORT 3000
 
 pthread_t decision_td;
 pthread_t logger_td;
+pthread_t server_td;
+pthread_t recv_conn_td;
 
-void startServer(int *port)
+void *logger(void *logger_param);
+
+void *startServer(void *server)
 {
-	int sin_size;
+	int sin_size, client_sock,sockfd;
 	struct sockaddr_in addr_local; /* client addr */
 	struct sockaddr_in addr_remote; /* server addr */
 	/* Get the Socket file descriptor */
@@ -28,7 +34,7 @@ void startServer(int *port)
 
 	/* Fill the client socket address struct */
 	addr_local.sin_family = AF_INET; // Protocol Family
-	addr_local.sin_port = htons((port)); // Port number
+	addr_local.sin_port = htons(PORT); // Port number
 	addr_local.sin_addr.s_addr = INADDR_ANY; // AutoFill local address
 	bzero(&(addr_local.sin_zero), 8); // Flush the rest of struct
 
@@ -39,20 +45,37 @@ void startServer(int *port)
 		exit(1);
 	}
 	else
-		printf("[Server] Binded tcp port %s in addr 127.0.0.1 sucessfully.\n",port);
+		printf("[Server] Binded tcp port %d in addr 127.0.0.1 sucessfully.\n",PORT);
 
 	/* Listen remote connect/calling */
-	if(listen(sockfd,BACKLOG) == -1)
+	if(listen(sockfd,3) == -1)
 	{
 		fprintf(stderr, "ERROR: Failed to listen Port. (errno = %d)\n", errno);
 		exit(1);
 	}
 	else
-		printf ("[Server] Listening the port %s successfully.\n", port);
+		printf ("[Server] Listening the port %d successfully.\n", PORT);
+
+	while((client_sock=accept(sockfd,(struct sockaddr *)&addr_remote, sizeof(addr_remote)))){
+		if(pthread_create(&recv_conn_td,NULL,logger,(void *)&client_sock)<0){
+			perror("Thread not created\n");
+	    	exit(1);
+		}
+	}
+
+}
+
+void *connection(void *client_sock){
+	int sock = *(int*)client_sock;
+	int read_size;
+	char *message, client_message[1000];
+	printf("recieving connecting stuff\n");
+
 
 }
 
 void *logger(void *logger_param){
+
     
 }
 
@@ -61,8 +84,13 @@ void *decision(void *decision_param){
 }
 
 int main(){
-    
-    startServer(PORT);
+    int ret;
+   // startServer();
+
+    if(pthread_create(&server_td,NULL,startServer,NULL)<0){
+    	perror("Thread for server and client connection not created\n");
+    	exit(1);
+    }
     if(pthread_create(&logger_td, NULL, logger, NULL)<0){
         perror("Thread not created\n");
 	    exit(1);
@@ -74,6 +102,7 @@ int main(){
 	
 	pthread_join(logger_td, NULL);
 	pthread_join(decision_td,NULL);
+	pthread_join(server_td,NULL);
 
     
     
