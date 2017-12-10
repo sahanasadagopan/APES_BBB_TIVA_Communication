@@ -14,7 +14,7 @@
 #include "drivers/pinout.h"
 #include "utils/uartstdio.h"
 #include "I2C_new.h"
-
+#include "EEPROMdriver.h"
 // TivaWare includes
 #include "driverlib/sysctl.h"
 #include "driverlib/debug.h"
@@ -33,9 +33,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
-#include "queue.h"
 #include "semphr.h"
 #include "gesture_sensor.h"
+#include "messaging.h"
+
 #define LSM6DS3_ADDR        (0x6A)
 #define TMP102_ADDR         (0x48)
 
@@ -49,10 +50,14 @@
 void HeartBeatChecker(void *pvParameters);
 void SensorTask(void *pvParameters);
 void LCDTask(void *pvParameters);
+void EEPROMTask(void *pvParameters);
 
 SemaphoreHandle_t UartProtector;
 
 TaskHandle_t TaskHandle[TOTAL_NUMBER_OF_TASKS];
+
+QueueHandle_t QueueHandle[TOTAL_NUMBER_OF_TASKS-1];
+
 
 // Main function
 int main(void)
@@ -86,16 +91,44 @@ int main(void)
         UARTprintf("\r\nHB task creation failed");
 
     xTaskCreateReturn=xTaskCreate(SensorTask, (const portCHAR *)"Sensor",
-                configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[SENSOR_TASK]);
+                configMINIMAL_STACK_SIZE, NULL, 2, &TaskHandle[SENSOR_TASK]);
 
     if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
             UARTprintf("\r\nSensor task creation failed");
 
     xTaskCreateReturn=xTaskCreate(LCDTask, (const portCHAR *)"LCD",
-                configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[LCD_TASK]);
+                configMINIMAL_STACK_SIZE, NULL, 2, &TaskHandle[LCD_TASK]);
 
     if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
             UARTprintf("\r\nLCD task creation failed");
+
+
+    xTaskCreateReturn=xTaskCreate(EEPROMTask, (const portCHAR *)"EEPROM",
+                configMINIMAL_STACK_SIZE, NULL, 2, &TaskHandle[EEPROM_TASK]);
+
+    if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
+            UARTprintf("\r\nEEPROM task creation failed");
+
+
+    /* create Queues for all the above defined tasks except the heart beat task */
+    QueueHandle[SENSOR_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
+
+    /* error checking */
+    if( QueueHandle[SENSOR_TASK]== NULL)
+        UARTprintf("\r\nSensor Queue creation failed");
+
+    QueueHandle[LCD_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
+
+    /* error checking */
+    if( QueueHandle[LCD_TASK]== NULL)
+        UARTprintf("\r\nLCD Queue creation failed");
+
+    QueueHandle[EEPROM_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
+
+    /* error checking */
+    if( QueueHandle[EEPROM_TASK]== NULL)
+        UARTprintf("\r\nEEPROM Queue creation failed");
+
 
     vTaskStartScheduler();
 
@@ -127,15 +160,26 @@ void HeartBeatChecker(void *pvParameters)
             UARTprintf("\r\nHB from LCD missed");
             xSemaphoreGive(UartProtector);
         }
+
         if(!(HeartbeatReceived&SENSOR_TASK_HEARTBEAT))
         {
            /* let it wait indefinitely until it gets the semaphore;
-            *  INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
             * */
             xSemaphoreTake( UartProtector, portMAX_DELAY);
             UARTprintf("\r\nHB from Sensor missed");
             xSemaphoreGive(UartProtector);
         }
+        if(!(HeartbeatReceived&EEPROM_TASK_HEARTBEAT))
+        {
+           /* let it wait indefinitely until it gets the semaphore;
+            * INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nHB from EEPROM missed");
+            xSemaphoreGive(UartProtector);
+        }
+
         /* no task is alive */
         if(NotifyWaitReturn==pdFALSE)
         {
@@ -175,22 +219,38 @@ void SensorTask(void *pvParameters)
 
     for (;;)
     {
-
         xSemaphoreTake( UartProtector, portMAX_DELAY);
         /* debug message to the UART logger */
         UARTprintf("\r\nSent HB from SensorTask");
         xSemaphoreGive(UartProtector);
 
-        vTaskDelay(5100 );
+        vTaskDelay(2000);
         /* notify the HeartBeat task of your well being */
         /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
         /* no point in checking the return from this function as it's always going to return successfully */
         xTaskNotify(HeartBeatHandle, SENSOR_TASK_HEARTBEAT, eSetBits);
 
+        /*send req for LCD data */
+        if(SendLCDCharsReq(SENSOR_TASK)!=pdPASS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\nsend LCD  req failed ");
+            xSemaphoreGive(UartProtector);
+        }
+
+        /* read queue for response now */
+        if(ReadQueueSensor()!=pdPASS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\nread sensor queue failed ");
+            xSemaphoreGive(UartProtector);
+        }
+
 
     }
 }
-
 
 /* just writing to UART for now */
 void LCDTask(void *pvParameters)
@@ -202,19 +262,125 @@ void LCDTask(void *pvParameters)
     UARTprintf("\r\nHB handle val in LCDTask:%d", HeartBeatHandle);
     xSemaphoreGive(UartProtector);
 
-    // BaseType_t TaskNotifyReturn;
+
     for (;;)
     {
         xSemaphoreTake( UartProtector, portMAX_DELAY);
         UARTprintf("\r\nSent HB from LCD");
         xSemaphoreGive(UartProtector);
 
-        vTaskDelay(5500);
+        vTaskDelay(2000);
 
         /* notify the HeartBeat task of your well being */
         /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
         /* no point in checking the return from this function as it's always going to return successfully */
         xTaskNotify(HeartBeatHandle, LCD_TASK_HEARTBEAT, eSetBits);
+
+        /*send req for LCD data */
+        if(SendProximityDataReq(LCD_TASK)!=pdPASS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\nsend Pdata  req failed ");
+            xSemaphoreGive(UartProtector);
+        }
+
+        /* read queue for response now */
+        if(ReadQueueLCD()!=pdPASS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\nread LCD queue failed ");
+            xSemaphoreGive(UartProtector);
+        }
+
+    }
+}
+
+/* reading and writing to addresses for now */
+void EEPROMTask(void *pvParameters)
+{
+    TaskHandle_t HeartBeatHandle=TaskHandle[HEARTBEAT_TASK];
+
+    //BaseType_t TaskNotifyReturn;
+
+    xSemaphoreTake( UartProtector, portMAX_DELAY);
+    UARTprintf("\r\nHB handle val in EEPROM Task:%d", HeartBeatHandle);
+    xSemaphoreGive(UartProtector);
+    uint32_t eeprom_val=0, eeprom_val_read=0;
+    uint32_t addr=0x400;
+
+    /* initialize the EEPROM */
+    driver_rc eprom_init_return =eeprom_init();
+
+    if(eprom_init_return!=DRIVER_SUCCESS)
+    {
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+        UARTprintf("\r\nInitialization failed");
+        xSemaphoreGive(UartProtector);
+    }
+
+    for (;;)
+    {
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+        /* debug message to the UART logger */
+        UARTprintf("\r\nSent HB from EEPROMTask");
+        xSemaphoreGive(UartProtector);
+
+        vTaskDelay(2000);
+
+        /* notify the HeartBeat task of your well being */
+        /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
+        /* no point in checking the return from this function as it's always going to return successfully */
+        xTaskNotify(HeartBeatHandle, EEPROM_TASK_HEARTBEAT, eSetBits);
+
+        /*send req for LCD data */
+        if(SendLCDCharsReq(EEPROM_TASK)!=pdPASS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\nsend LCD  req failed ");
+            xSemaphoreGive(UartProtector);
+        }
+
+        driver_rc eeprom_driver_return=eeprom_program(&eeprom_val, addr, 4);
+
+        if(eeprom_driver_return!=DRIVER_SUCCESS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\n eeprom write faield");
+            xSemaphoreGive(UartProtector);
+        }
+        else
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\n val written:%d", eeprom_val);
+            xSemaphoreGive(UartProtector);
+        }
+        eeprom_val_read=0;
+        /* read from the same address now */
+        eeprom_driver_return=eeprom_read(&eeprom_val_read, addr, 4);
+
+        if(eeprom_driver_return!=DRIVER_SUCCESS)
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\n eeprom write faield");
+            xSemaphoreGive(UartProtector);
+        }
+        else
+        {
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            /* debug message to the UART logger */
+            UARTprintf("\r\n val read:%d", eeprom_val_read);
+            xSemaphoreGive(UartProtector);
+        }
+
+        /* write something different now */
+        eeprom_val=eeprom_val+1;
+        addr=addr+4;
     }
 }
 
