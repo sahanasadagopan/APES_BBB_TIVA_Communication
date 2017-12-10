@@ -27,7 +27,11 @@
 #include "driverlib/interrupt.h"
 #include "driverlib/pin_map.h"
 #include "driverlib/uart.h"
+#include "utils/ustdlib.h"
 
+#include "utils/lwiplib.h"
+#include "utils/locator.h"
+#include "lwip/opt.h"
 // FreeRTOS includes
 #include "FreeRTOSConfig.h"
 #include "FreeRTOS.h"
@@ -44,6 +48,8 @@
 // Global instance structure for the I2C master driver.
 //tI2CMInstance g_sI2CInst;
 
+uint32_t g_ui32SysClock;
+uint32_t g_ui32IPAddress;
 
 
 // Demo Task declarations
@@ -59,23 +65,218 @@ TaskHandle_t TaskHandle[TOTAL_NUMBER_OF_TASKS];
 QueueHandle_t QueueHandle[TOTAL_NUMBER_OF_TASKS-1];
 
 
+//*****************************************************************************
+//
+// Display an lwIP type IP Address.
+//
+//*****************************************************************************
+void
+DisplayIPAddress(uint32_t ui32Addr)
+{
+    char pcBuf[16];
+
+    //
+    // Convert the IP Address into a string.
+    //
+    usprintf(pcBuf, "%d.%d.%d.%d", ui32Addr & 0xff, (ui32Addr >> 8) & 0xff,
+            (ui32Addr >> 16) & 0xff, (ui32Addr >> 24) & 0xff);
+
+    //
+    // Display the string.
+    //
+    UARTprintf(pcBuf);
+}
+
+void
+lwIPHostTimerHandler(void)
+{
+    uint32_t ui32Idx, ui32NewIPAddress;
+
+    //
+    // Get the current IP address.
+    //
+    ui32NewIPAddress = lwIPLocalIPAddrGet();
+
+    //
+    // See if the IP address has changed.
+    //
+    if(ui32NewIPAddress != g_ui32IPAddress)
+    {
+        //
+        // See if there is an IP address assigned.
+        //
+        if(ui32NewIPAddress == 0xffffffff)
+        {
+            //
+            // Indicate that there is no link.
+            //
+            UARTprintf("Waiting for link.\n");
+        }
+        else if(ui32NewIPAddress == 0)
+        {
+            //
+            // There is no IP address, so indicate that the DHCP process is
+            // running.
+            //
+            UARTprintf("Waiting for IP address.\n");
+        }
+        else
+        {
+            //
+            // Display the new IP address.
+            //
+            UARTprintf("IP Address: ");
+            DisplayIPAddress(ui32NewIPAddress);
+            UARTprintf("\nOpen a browser and enter the IP address.\n");
+        }
+
+        //
+        // Save the new IP address.
+        //
+        g_ui32IPAddress = ui32NewIPAddress;
+
+        //
+        // Turn GPIO off.
+        //
+        MAP_GPIOPinWrite(GPIO_PORTN_BASE, GPIO_PIN_1, ~GPIO_PIN_1);
+    }
+
+    //
+    // If there is not an IP address.
+    //
+    if((ui32NewIPAddress == 0) || (ui32NewIPAddress == 0xffffffff))
+    {
+        //
+        // Loop through the LED animation.
+        //
+
+        for(ui32Idx = 1; ui32Idx < 17; ui32Idx++)
+        {
+
+            //
+            // Toggle the GPIO
+            //
+            MAP_GPIOPinWrite(GPIO_PORTN_BASE, GPIO_PIN_1,
+                    (MAP_GPIOPinRead(GPIO_PORTN_BASE, GPIO_PIN_1) ^
+                     GPIO_PIN_1));
+
+            SysCtlDelay(g_ui32SysClock/(ui32Idx << 1));
+        }
+    }
+}
+
+//*****************************************************************************
+//
+// The interrupt handler for the SysTick interrupt.
+//
+//*****************************************************************************
+void
+SysTickIntHandler(void)
+{
+    //
+    // Call the lwIP timer handler.
+    //
+    lwIPTimer(SYSTICKMS);
+}
+ err_t connection_successful(void *arg, struct tcp_pcb *tpcb, err_t err)
+ {
+     UARTprintf("Connection hogaya\n");
+     return 0;
+ }
+
 // Main function
 int main(void)
 {
+    uint32_t ui32User0, ui32User1;
+
+    uint8_t pui8MACArray[8];
+
     // Initialize system clock to 120 MHz
-    uint32_t output_clock_rate_hz;
-    output_clock_rate_hz = ROM_SysCtlClockFreqSet(
+
+    g_ui32SysClock = ROM_SysCtlClockFreqSet(
                                (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
                                 SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
                                SYSTEM_CLOCK);
-    ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
+    ASSERT(g_ui32SysClock == SYSTEM_CLOCK);
 
     // Set up the UART which is connected to the virtual COM port
     UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
 
     // Initialize the GPIO pins for the Launchpad
-    PinoutSet(false, false);
+    PinoutSet(true, false);
 
+    //
+    // Configure SysTick for a periodic interrupt.
+    //
+    MAP_SysTickPeriodSet(g_ui32SysClock / SYSTICKHZ);
+    MAP_SysTickEnable();
+    MAP_SysTickIntEnable();
+
+
+    //
+    // Configure the hardware MAC address for Ethernet Controller filtering of
+    // incoming packets.  The MAC address will be stored in the non-volatile
+    // USER0 and USER1 registers.
+    //
+    MAP_FlashUserGet(&ui32User0, &ui32User1);
+    if((ui32User0 == 0xffffffff) || (ui32User1 == 0xffffffff))
+    {
+        //
+        // We should never get here.  This is an error if the MAC address has
+        // not been programmed into the device.  Exit the program.
+        // Let the user know there is no MAC address
+        //
+        UARTprintf("No MAC programmed!\n");
+        while(1)
+        {
+        }
+    }
+
+    //
+    // Tell the user what we are doing just now.
+    //
+    UARTprintf("Waiting for IP.\n");
+
+    //
+    // Convert the 24/24 split MAC address from NV ram into a 32/16 split MAC
+    // address needed to program the hardware registers, then program the MAC
+    // address into the Ethernet Controller registers.
+    //
+    pui8MACArray[0] = ((ui32User0 >>  0) & 0xff);
+    pui8MACArray[1] = ((ui32User0 >>  8) & 0xff);
+    pui8MACArray[2] = ((ui32User0 >> 16) & 0xff);
+    pui8MACArray[3] = ((ui32User1 >>  0) & 0xff);
+    pui8MACArray[4] = ((ui32User1 >>  8) & 0xff);
+    pui8MACArray[5] = ((ui32User1 >> 16) & 0xff);
+
+    //
+    // Initialize the lwIP library, using DHCP.
+    //
+    lwIPInit(g_ui32SysClock, pui8MACArray, 0xC0A80703,  0xFFFFFF00,  0xC0A80702, IPADDR_USE_STATIC);
+
+    //
+    // Setup the device locator service.
+    //
+    //LocatorInit();
+    //LocatorMACAddrSet(pui8MACArray);
+    //LocatorAppTitleSet("EK-TM4C1294XL enet_io");
+
+    /* create a socket */
+    struct tcp_pcb *client_pcb_socket;
+    err_t err;
+    client_pcb_socket = tcp_new();
+    LWIP_ASSERT("socket_init: tcp_new failed", client_pcb_socket != NULL);
+
+    uint32_t remote_ip=0xC0A80702;
+
+    err_t connect_return = tcp_connect(client_pcb_socket, &remote_ip, 1025, connection_successful );
+
+    LWIP_ASSERT("socket_init: tcp_connect failed", connect_return != NULL);
+
+    /* initialize callback arg and accept callback */
+   // tcp_arg(client_pcb_socket, pcb);
+
+    //tcp_accept(pcb, http_accept);
     BaseType_t xTaskCreateReturn;
 
     UartProtector=xSemaphoreCreateMutex();

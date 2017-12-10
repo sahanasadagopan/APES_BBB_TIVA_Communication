@@ -28,4 +28,13 @@
  * defined in main  */
 typedef enum {SENSOR_TASK, LCD_TASK, EEPROM_TASK, HEARTBEAT_TASK}TaskID;
 
+//*****************************************************************************
+//
+// Defines for setting up the system clock.
+//
+//*****************************************************************************
+#define SYSTICKHZ               100
+#define SYSTICKMS               (1000 / SYSTICKHZ)
+
+
 #endif /* MAIN_H_ */
