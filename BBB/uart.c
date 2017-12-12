@@ -35,25 +35,16 @@ open_port(void)
     return (fd);
 }
 
-
-int main()
-{
-    int fd=open_port();
-    //printf("blocked here");
-    char received=0;
-    //printf("blocked here");
-    //while(1){
-    struct termios options;
-    tcgetattr(fd, &options);
-    cfsetispeed(&options, B9600);
-    cfsetospeed(&options, B9600);
-    options.c_cflag |= (CLOCAL | CREAD);
-    tcsetattr(fd, TCSAFLUSH, &options);
-    int n = write(fd, "1", 2);
+void send_byte(int fd,char data ){
+    int n = write(fd, &data, 1);
     //tcdrain(fd);
-    if (n < 0)
-       fputs("write() of 4 bytes failed!\n", stderr);
-    if( read(fd, &received, 1)>0){
+       if (n < 0)
+          fputs("write() of 4 bytes failed!\n", stderr);
+}
+
+void read_byte(int fd,char received){
+    int n;
+    if( (n=read(fd, &received, 1))>0){
          if (n < 0)
             fputs("read failed", stderr);    
         
@@ -63,11 +54,35 @@ int main()
         printf("Cannot read");
     }
     
+}
+
+int main()
+{
+    int fd=open_port();
+    char received=0;
+    
+    struct termios options;
+    tcgetattr(fd, &options);
+    cfsetispeed(&options, B9600);
+    cfsetospeed(&options, B9600);
+    options.c_cflag |= (CLOCAL | CREAD);
+    tcsetattr(fd, TCSAFLUSH, &options);
+    
+    char data='U';
+    send_byte(fd,data);
+    read_byte(fd,received);
+    
+    
     
     
     close(fd); 
     return 0;
 }
+
+
+
+
+
 
 
 
