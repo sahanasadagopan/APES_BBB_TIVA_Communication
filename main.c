@@ -16,6 +16,7 @@
 #include "utils/uartstdio.h"
 #include "I2C_new.h"
 #include "EEPROMdriver.h"
+
 // TivaWare includes
 #include "driverlib/sysctl.h"
 #include "driverlib/debug.h"
@@ -54,9 +55,10 @@ void HeartBeatChecker(void *pvParameters);
 void SensorTask(void *pvParameters);
 void LCDTask(void *pvParameters);
 void EEPROMTask(void *pvParameters);
+void UARTTask(void *pvParameters);
 
 SemaphoreHandle_t UartProtector;
-
+SemaphoreHandle_t copydatamutex;
 TaskHandle_t TaskHandle[TOTAL_NUMBER_OF_TASKS];
 
 QueueHandle_t QueueHandle[TOTAL_NUMBER_OF_TASKS-1];
@@ -73,8 +75,24 @@ uint32_t output_clock_rate_hz;
     ROM_UARTConfigSetExpClk(UART0_BASE, output_clock_rate_hz, 9600, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE |
                                 UART_CONFIG_PAR_NONE));
 }*/
+typedef enum {HEARTBEAT_MISSED=0, HEARTBEAT_RECEIVED=1} heartbeat_t;
 
-void
+/* message packet to be received from the TIVA */
+typedef struct
+{
+    /* get the state of all the heartbeats */
+   // heartbeat_t heartbeats[4];
+    uint8_t heartbeats[4];
+    /* TODO: change this to timestamp */
+    uint8_t length;
+    /* */
+    uint8_t sensor_val;
+
+    /* */
+
+}device_message_packet_t;
+
+/*void
 UARTIntHandler(void)
 {
     uint32_t ui32Status;
@@ -119,10 +137,10 @@ UARTIntHandler(void)
         GPIOPinWrite(GPIO_PORTN_BASE, GPIO_PIN_0, 0);
    // }
 
-}
+}*/
 
 void
-UARTSend(char* byte, uint32_t ui32Count)
+UARTSend(uint8_t byte)
 {
     //
     // Loop while there are more characters to send.
@@ -131,10 +149,10 @@ UARTSend(char* byte, uint32_t ui32Count)
     //
     // Write the next character to the UART.
     //
-    while(ui32Count--)
-    {
-        ROM_UARTCharPut(UART3_BASE, *byte++);
-    }
+    //while(ui32Count--)
+   // {
+        ROM_UARTCharPut(UART3_BASE, byte);
+   // }
 }
 
 // Main function
@@ -149,80 +167,29 @@ int main(void)
     ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
 
     // Set up the UART which is connected to the virtual COM port
-   // UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
+    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
 
     // Initialize the GPIO pins for the Launchpad
-    //PinoutSet(false, false);
-    //UARTprintf("sent\n\r");
+     PinoutSet(false, false);
+     //UARTprintf("sent\n\r");
     //
     // Enable the GPIO port that is used for the on-board LED.
     //
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPION);
+    //ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPION);
 
     //
     // Enable the GPIO pins for the LED (PN0).
     //
-    ROM_GPIOPinTypeGPIOOutput(GPIO_PORTN_BASE, GPIO_PIN_0);
+    //ROM_GPIOPinTypeGPIOOutput(GPIO_PORTN_BASE, GPIO_PIN_0);
 
 
-    //
-    // Enable the peripherals used by this example.
-    //
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_UART3);
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+    BaseType_t xTaskCreateReturn;
 
-    //
-    // Set GPIO A0 and A1 as UART pins.
-    //
-    GPIOPinConfigure(GPIO_PA4_U3RX);
-    GPIOPinConfigure(GPIO_PA5_U3TX);
-    ROM_GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_5 | GPIO_PIN_4);
-
-    //
-    // Configure the UART for 115,200, 8-N-1 operation.
-    //
-    ROM_UARTConfigSetExpClk(UART3_BASE, output_clock_rate_hz, 115200,
-                            (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE |
-                             UART_CONFIG_PAR_NONE));
-
-    //
-    // Enable processor interrupts.
-    //
-    /*ROM_IntMasterEnable();
-
-    UARTIntRegister(UART3_BASE, UARTIntHandler);
-
-
-    //
-    // Configure SysTick for a periodic interrupt.
-    //
-    ROM_IntEnable(INT_UART3);
-    ROM_UARTIntEnable(UART3_BASE, UART_INT_RX | UART_INT_RT);
-*/
-    //
-    // Prompt for text to be entered.
-    //
-    //UARTSend((uint8_t *)"t", 2);
-
-    //
-    // Loop forever echoing data through the UART.
-    //
-    char string_test[6];
-    strcpy(string_test, "hello");
-
-    while(1)
-    {
-        UARTSend("U", 1);
- //       UARTprintf("sent\n\r");
-
-    }
-    /*BaseType_t xTaskCreateReturn;
-
-    UartProtector=xSemaphoreCreateMutex();*/
+    UartProtector=xSemaphoreCreateMutex();
 
     /* Create all the tasks required */
     /* send the heart beat task's handle info as an argument */
-    /*xTaskCreateReturn=xTaskCreate(HeartBeatChecker, (const portCHAR *)"HeartBeat",
+    xTaskCreateReturn=xTaskCreate(HeartBeatChecker, (const portCHAR *)"HeartBeat",
                    configMINIMAL_STACK_SIZE, NULL, 1, &TaskHandle[HEARTBEAT_TASK] );
 
     UARTprintf("\r\nHB handle val:%d", TaskHandle[HEARTBEAT_TASK]);
@@ -247,30 +214,41 @@ int main(void)
                 configMINIMAL_STACK_SIZE, NULL, 2, &TaskHandle[EEPROM_TASK]);
 
     if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
-            UARTprintf("\r\nEEPROM task creation failed");*/
+            UARTprintf("\r\nEEPROM task creation failed");
+
+    xTaskCreateReturn=xTaskCreate(UARTTask, (const portCHAR *)"UARTLOGGER",
+                    configMINIMAL_STACK_SIZE, NULL, 2, &TaskHandle[UARTLOGGER_TASK]);
+
+    if(xTaskCreateReturn==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY)
+               UARTprintf("\r\nEEPROM task creation failed");
 
 
     /* create Queues for all the above defined tasks except the heart beat task */
-    /*QueueHandle[SENSOR_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));*/
+    QueueHandle[SENSOR_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
 
     /* error checking */
-    /*if( QueueHandle[SENSOR_TASK]== NULL)
-        UARTprintf("\r\nSensor Queue creation failed");*/
+    if( QueueHandle[SENSOR_TASK]== NULL)
+        UARTprintf("\r\nSensor Queue creation failed");
 
-    //QueueHandle[LCD_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
+    QueueHandle[LCD_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
 
     /* error checking */
-    /*if( QueueHandle[LCD_TASK]== NULL)
+   if( QueueHandle[LCD_TASK]== NULL)
         UARTprintf("\r\nLCD Queue creation failed");
 
-    QueueHandle[EEPROM_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));*/
+    QueueHandle[EEPROM_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(InterTaskPacket_t));
 
     /* error checking */
-    /*if( QueueHandle[EEPROM_TASK]== NULL)
+    if( QueueHandle[EEPROM_TASK]== NULL)
         UARTprintf("\r\nEEPROM Queue creation failed");
 
+    QueueHandle[UARTLOGGER_TASK]=xQueueCreate(QUEUE_LENGTH, sizeof(UartMessage));
 
-    vTaskStartScheduler();*/
+       /* error checking */
+    if( QueueHandle[UARTLOGGER_TASK]== NULL)
+        UARTprintf("\r\nSensor Queue creation failed");
+
+    vTaskStartScheduler();
 
     return 0;
 }
@@ -280,7 +258,9 @@ void HeartBeatChecker(void *pvParameters)
 {
     uint32_t HeartbeatReceived;
     BaseType_t NotifyWaitReturn;
-
+    //QueueHandle_t QueueHandle[UARTLOGGER_TASK];
+    UartMessage xMessage;
+    //QueueHandle[UARTLOGGER_TASK] = (QueueHandle_t)pvParameters;
     /* get heart beats from the tasks created in this loop */
     while(1)
     {
@@ -299,6 +279,11 @@ void HeartBeatChecker(void *pvParameters)
             xSemaphoreTake( UartProtector, portMAX_DELAY);
             UARTprintf("\r\nHB from LCD missed");
             xSemaphoreGive(UartProtector);
+            xMessage.heartbeat[0]=HEARTBEAT_MISSED;
+
+        }
+        else{
+            xMessage.heartbeat[0]=HEARTBEAT_RECEIVED;
         }
 
         if(!(HeartbeatReceived&SENSOR_TASK_HEARTBEAT))
@@ -309,7 +294,13 @@ void HeartBeatChecker(void *pvParameters)
             xSemaphoreTake( UartProtector, portMAX_DELAY);
             UARTprintf("\r\nHB from Sensor missed");
             xSemaphoreGive(UartProtector);
+            xMessage.heartbeat[1]=HEARTBEAT_MISSED;
+
         }
+        else{
+            xMessage.heartbeat[1]=HEARTBEAT_RECEIVED;
+        }
+
         if(!(HeartbeatReceived&EEPROM_TASK_HEARTBEAT))
         {
            /* let it wait indefinitely until it gets the semaphore;
@@ -318,7 +309,32 @@ void HeartBeatChecker(void *pvParameters)
             xSemaphoreTake( UartProtector, portMAX_DELAY);
             UARTprintf("\r\nHB from EEPROM missed");
             xSemaphoreGive(UartProtector);
+            xMessage.heartbeat[2]=HEARTBEAT_MISSED;
+
         }
+        else{
+            xMessage.heartbeat[2]=HEARTBEAT_RECEIVED;
+        }
+
+
+        if(!(HeartbeatReceived&UARTLOGGER_TASK_HEARTBEAT))
+        {
+           /* let it wait indefinitely until it gets the semaphore;
+            * INCLUDE_vTaskSuspend is set to 1 in the FreeRTOSConfig.h file
+            * */
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nHB from UART missed");
+            xSemaphoreGive(UartProtector);
+            xMessage.heartbeat[3]=HEARTBEAT_MISSED;
+
+        }
+        else{
+            xMessage.heartbeat[3]=HEARTBEAT_RECEIVED;
+        }
+        if((xQueueSendToFront(QueueHandle[UARTLOGGER_TASK],&xMessage,pdMS_TO_TICKS(4000)))!=pdPASS){
+                    UARTprintf("\r\nCould not Send to UART");
+        }
+
 
         /* no task is alive */
         if(NotifyWaitReturn==pdFALSE)
@@ -524,19 +540,122 @@ void EEPROMTask(void *pvParameters)
     }
 }
 
-/*  ASSERT() Error function
- *
- *  failed ASSERTS() from driverlib/debug.h are executed in this function
- */
-void __error__(char *pcFilename, uint32_t ui32Line)
-{
-    // Place a breakpoint here to capture errors until logging routine is finished
-    while (1)
+void UARTTask(void *pvParameters){
+        copydatamutex = xSemaphoreCreateMutex();
+        TaskHandle_t HeartBeatHandle=TaskHandle[HEARTBEAT_TASK];
+       // QueueHandle_t QueueHandle[UARTLOGGER_TASK];
+        UartMessage xMessage;
+        device_message_packet_t tiva_message;
+
+        uint8_t index;
+        for( index=0; index<4; index++)
+            tiva_message.heartbeats[index]=0;
+
+       // QueueHandle[UARTLOGGER_TASK] = (QueueHandle_t)pvParameters;
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+        UARTprintf("\r\nHB handle val in UARTLogger Task:%d", HeartBeatHandle);
+        xSemaphoreGive(UartProtector);
+
+
+
+        /* notify the HeartBeat task of your well being */
+        /* OR the notification value with the value that represents this task's heart beat using the esetBits argument */
+        /* no point in checking the return from this function as it's always going to return successfully */
+        xTaskNotify(HeartBeatHandle, UARTLOGGER_TASK_HEARTBEAT, eSetBits);
+
+        //
+       // Enable the peripherals used by this example.
+       //
+      // UARTprintf("sentin uart\n\r");
+       ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_UART3);
+       ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+
+
+       //
+       // Set GPIO A0 and A1 as UART pins.
+       //
+       GPIOPinConfigure(GPIO_PA4_U3RX);
+       GPIOPinConfigure(GPIO_PA5_U3TX);
+       ROM_GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_5 | GPIO_PIN_4);
+
+
+    //
+    // Configure the UART for 115,200, 8-N-1 operation.
+    //
+    ROM_UARTConfigSetExpClk(UART3_BASE, output_clock_rate_hz, 115200,
+                            (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE |
+                             UART_CONFIG_PAR_NONE));
+    //
+    // Loop forever echoing data through the UART.
+    //
+    UARTSend('E');
+    int i=0;
+    while(1)
     {
+        if(xQueueReceive(QueueHandle[UARTLOGGER_TASK],&xMessage,portMAX_DELAY)!=pdPASS){
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nQueue UART recieve not valid");
+            xSemaphoreGive(UartProtector);
+        }
+        else{
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nQueue UART recieve  valid");
+            xSemaphoreGive(UartProtector);
+            xSemaphoreTake( UartProtector, portMAX_DELAY);
+            UARTprintf("\r\nQueue UART recieve: %d",xMessage.heartbeat[0]);
+            UARTprintf("\r\nQueue UART recieve: %d",xMessage.heartbeat[1]);
+            UARTprintf("\r\nQueue UART recieve: %d",xMessage.heartbeat[2]);
+            UARTprintf("\r\nQueue UART recieve: %d",xMessage.heartbeat[3]);
+            xSemaphoreGive(UartProtector);
+            if(xMessage.heartbeat[i]==HEARTBEAT_MISSED){
+                xSemaphoreTake( UartProtector, portMAX_DELAY);
+                UARTprintf("\r\nHeartbeat Missed");
+                xSemaphoreGive(UartProtector);
+            }
+            else{
+                xSemaphoreTake( UartProtector, portMAX_DELAY);
+                UARTprintf("\r\nHeartbeat got" );
+                xSemaphoreGive(UartProtector);
+            }
+            //xSemaphoreGetMutexHolder(copydatamutex);
+            xSemaphoreTake(copydatamutex , portMAX_DELAY);
+            for(index=0; index<4; index++)
+            {
+
+                tiva_message.heartbeats[index]=xMessage.heartbeat[index];
+            }
+            xSemaphoreGive(copydatamutex);
+        }
+        xSemaphoreTake( UartProtector, portMAX_DELAY);
+       /* debug message to the UART logger */
+       UARTprintf("\r\nSent HB from UartTask");
+       xSemaphoreGive(UartProtector);
+
+       vTaskDelay(2000);
+
+
+        //uint32_t count=4294967;
+
+
+        for( i=0; i<4; i++)
+        {
+
+            //tiva_message.heartbeats[i]=1;//HEARTBEAT_MISSED;
+            UARTSend(tiva_message.heartbeats[i]);
+        }
+
+        uint8_t sizeofstruct=sizeof(tiva_message);
+       // tiva_message.length=sizeofstruct;
+        tiva_message.sensor_val=0x56;
+
+        //UARTSend(tiva_message.length);
+        UARTSend(tiva_message.sensor_val);
+
     }
 }
 
-#ifdef PROXIMITY_STUFF
+
+
 
 void gesture_sensor_interrupt_handler()
 {
@@ -556,12 +675,13 @@ void gesture_sensor_interrupt_handler()
     UARTprintf("\r\nvalue:0x%x", pdata_val);
 
 }
+#if PROXIMITY
 // Main function
-int main(void)
+int proximity_value()
 {
-    uint32_t output_clock_rate_hz;
+    //uint32_t output_clock_rate_hz;
 
-    output_clock_rate_hz=ROM_SysCtlClockFreqSet(
+    /*output_clock_rate_hz=ROM_SysCtlClockFreqSet(
             (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
              SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
             SYSTEM_CLOCK);
@@ -569,6 +689,9 @@ int main(void)
     ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
     // Initialize the GPIO pins for the Launchpad
     PinoutSet(false, false);
+
+    // Set up the UART which is connected to the virtual COM port
+    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);*/
 
     I2C_Init();
 
@@ -585,30 +708,30 @@ int main(void)
     GPIOPinTypeGPIOInput(GPIO_PORTL_BASE, GPIO_PIN_5);
 
     /* start by enabling the master interrupt */
-    IntMasterEnable();
+    //IntMasterEnable();
 
     /* define the handler for the GPIO interrupt */
-    GPIOIntRegister(GPIO_PORTL_BASE, gesture_sensor_interrupt_handler);
+    //GPIOIntRegister(GPIO_PORTL_BASE, gesture_sensor_interrupt_handler);
 
     /* set the type of interrupt */
-    GPIOIntTypeSet(GPIO_PORTL_BASE, GPIO_PIN_5, GPIO_RISING_EDGE);
+    //GPIOIntTypeSet(GPIO_PORTL_BASE, GPIO_PIN_5, GPIO_RISING_EDGE);
 
     /* then enable interrupts for PIN 5 on Port L */
-    GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
+    //GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
 
 
     /* set a persistence of 10 cycles so that false interrupts are not triggered */
 
-    uint8_t persistence_cycles=0xA0;
+    /*uint8_t persistence_cycles=0xA0;
     gesture_sensor_write(PERSISTENCE_REG_ADDRESS, persistence_cycles);
     persistence_cycles=0;
     gesture_sensor_read(PERSISTENCE_REG_ADDRESS, &persistence_cycles);
 
-    UARTprintf("\r\nPersistence cycles 0x%x",persistence_cycles);
+    UARTprintf("\r\nPersistence cycles 0x%x",persistence_cycles);*/
 
     /* set upper and lower threshold values */
 
-    uint8_t lower_threshold=0, upper_threshold=10;
+    /*uint8_t lower_threshold=0, upper_threshold=10;
 
     gesture_sensor_write(PIHT_REG_ADDRESS , upper_threshold);
     upper_threshold=0;
@@ -619,31 +742,48 @@ int main(void)
     gesture_sensor_read(PILT_REG_ADDRESS, &lower_threshold);
 
     UARTprintf("\r\nLower threshold 0x%x",lower_threshold);
-    UARTprintf("\r\nUpper threshold 0x%x",upper_threshold);
+    UARTprintf("\r\nUpper threshold 0x%x",upper_threshold);*/
 
     /* have a wait time between cycles */
     /* a wait time value of 171 will translate to 236 ms of wait time between read cycles */
-    uint8_t wait_time=171;
+    /*uint8_t wait_time=171;
 
     gesture_sensor_write(WAIT_TIME_REG_ADDRESS, wait_time);
     gesture_sensor_read(WAIT_TIME_REG_ADDRESS, &wait_time);
 
-    UARTprintf("\r\nWait time 0x%x", wait_time);
+    UARTprintf("\r\nWait time 0x%x", wait_time);*/
 
     /* power on and enable the proximity sensor; also enable the proximity interrupt and wait time between cycles */
 
-    uint8_t enable_proximity=0x2D;
+    uint8_t enable_proximity=0x05;
 
     gesture_sensor_write(ENABLE_REG_ADDRESS, enable_proximity);
 
     gesture_sensor_read(ENABLE_REG_ADDRESS, &enable_proximity);
 
     UARTprintf("\r\nEnable reg value 0x%x", enable_proximity);
+    /* read from the proximity register */
+    uint8_t pdata_val;
+    while(1){
+         gesture_sensor_read(PDATA_ADDRESS, &pdata_val);
+        /* print value on the UART terminal */
+        UARTprintf("\r\nvalue:0x%x", pdata_val);
+    }
 
-    /* wait for an interrupt here */
-    while(1);
+}
 #endif
+/*  ASSERT() Error function
+ *
+ *  failed ASSERTS() from driverlib/debug.h are executed in this function
+ */
 
+void __error__(char *pcFilename, uint32_t ui32Line)
+{
+    // Place a breakpoint here to capture errors until logging routine is finished
+    while (1)
+    {
+    }
+}
 #ifdef GESTURE_MODE
     /*Gesture Sensor*/
     uint8_t enable_gesture_cmd=0x45;
