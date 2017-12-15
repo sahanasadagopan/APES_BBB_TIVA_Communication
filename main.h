@@ -58,6 +58,6 @@ typedef enum {SENSOR_TASK, LCD_TASK, EEPROM_TASK, UARTLOGGER_TASK, HEARTBEAT_TAS
 //*****************************************************************************
 #define SYSTICKHZ               100
 #define SYSTICKMS               (1000 / SYSTICKHZ)
-
+void proximity_data(uint8_t *pdata_val);
 
 #endif /* MAIN_H_ */

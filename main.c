@@ -49,6 +49,8 @@
 uint32_t g_ui32SysClock;
 uint32_t g_ui32IPAddress;
 
+uint8_t proximity=0;
+uint32_t eeprom_addr=0x400;
 
 // Demo Task declarations
 void HeartBeatChecker(void *pvParameters);
@@ -87,6 +89,8 @@ typedef struct
     uint8_t length;
     /* */
     uint8_t sensor_val;
+
+    uint32_t eeprom;
 
     /* */
 
@@ -155,6 +159,21 @@ UARTSend(uint8_t byte)
    // }
 }
 
+void
+UARTSend_4byte(uint8_t *byte,uint8_t ui32Count)
+{
+    //
+    // Loop while there are more characters to send.
+    //
+
+    //
+    // Write the next character to the UART.
+    //
+    while(ui32Count--)
+    {
+        ROM_UARTCharPut(UART3_BASE, *byte++);
+   }
+}
 // Main function
 int main(void)
 {
@@ -404,6 +423,8 @@ void SensorTask(void *pvParameters)
             xSemaphoreGive(UartProtector);
         }
 
+        proximity_data(&proximity);
+
 
     }
 }
@@ -464,7 +485,7 @@ void EEPROMTask(void *pvParameters)
     UARTprintf("\r\nHB handle val in EEPROM Task:%d", HeartBeatHandle);
     xSemaphoreGive(UartProtector);
     uint32_t eeprom_val=0, eeprom_val_read=0;
-    uint32_t addr=0x400;
+
 
     /* initialize the EEPROM */
     driver_rc eprom_init_return =eeprom_init();
@@ -499,7 +520,7 @@ void EEPROMTask(void *pvParameters)
             xSemaphoreGive(UartProtector);
         }
 
-        driver_rc eeprom_driver_return=eeprom_program(&eeprom_val, addr, 4);
+        driver_rc eeprom_driver_return=eeprom_program(&eeprom_val, eeprom_addr, 4);
 
         if(eeprom_driver_return!=DRIVER_SUCCESS)
         {
@@ -517,7 +538,7 @@ void EEPROMTask(void *pvParameters)
         }
         eeprom_val_read=0;
         /* read from the same address now */
-        eeprom_driver_return=eeprom_read(&eeprom_val_read, addr, 4);
+        eeprom_driver_return=eeprom_read(&eeprom_val_read, eeprom_addr, 4);
 
         if(eeprom_driver_return!=DRIVER_SUCCESS)
         {
@@ -536,7 +557,7 @@ void EEPROMTask(void *pvParameters)
 
         /* write something different now */
         eeprom_val=eeprom_val+1;
-        addr=addr+4;
+        eeprom_addr=eeprom_addr+4;
     }
 }
 
@@ -588,8 +609,8 @@ void UARTTask(void *pvParameters){
     //
     // Loop forever echoing data through the UART.
     //
-    UARTSend('E');
-    int i=0;
+  // UARTSend('E');
+     int i=0;
     while(1)
     {
         if(xQueueReceive(QueueHandle[UARTLOGGER_TASK],&xMessage,portMAX_DELAY)!=pdPASS){
@@ -646,10 +667,10 @@ void UARTTask(void *pvParameters){
 
         uint8_t sizeofstruct=sizeof(tiva_message);
        // tiva_message.length=sizeofstruct;
-        tiva_message.sensor_val=0x56;
-
-        //UARTSend(tiva_message.length);
+        tiva_message.sensor_val=proximity;
+        tiva_message.eeprom = eeprom_addr;
         UARTSend(tiva_message.sensor_val);
+        UARTSend_4byte((uint8_t *)&tiva_message.eeprom,4);
 
     }
 }
@@ -657,22 +678,98 @@ void UARTTask(void *pvParameters){
 
 
 
-void gesture_sensor_interrupt_handler()
+void proximity_data(uint8_t *pdata_val)
 {
-    /* clear pending interrupts on the sensor */
-    /* any value written to the PICLEAR reg is good to clear interrupts */
-   // uint8_t random_val=10;
-   // gesture_sensor_write(PROXIMITY_INTERRUPT_CLEAR, random_val);
+    //uint32_t output_clock_rate_hz;
 
-    /* clear pending interrupts locally */
-    GPIOIntClear(GPIO_PORTL_BASE, GPIO_PIN_5);
+    /*output_clock_rate_hz=ROM_SysCtlClockFreqSet(
+            (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
+             SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
+            SYSTEM_CLOCK);
+
+    ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
+    // Initialize the GPIO pins for the Launchpad
+    PinoutSet(false, false);
+
+    // Set up the UART which is connected to the virtual COM port
+    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);*/
+
+    I2C_Init();
+
+    /*uint8_t data_write=0x01;
+    I2C_write(TMP102_ADDR,data_write);
+    uint16_t datarecv;
+    I2C_read(TMP102_ADDR,&datarecv);
+    UARTprintf("\r\n1st value 0x%x",*((uint8_t*)&datarecv));
+    UARTprintf("\r\n2nd value 0x%x",*((uint8_t*)&datarecv + 1));*/
+
+    /* interrupts stuff */
+
+    /* first configure the pin as input */
+    GPIOPinTypeGPIOInput(GPIO_PORTL_BASE, GPIO_PIN_5);
+
+    /* start by enabling the master interrupt */
+    //IntMasterEnable();
+
+    /* define the handler for the GPIO interrupt */
+    //GPIOIntRegister(GPIO_PORTL_BASE, gesture_sensor_interrupt_handler);
+
+    /* set the type of interrupt */
+    //GPIOIntTypeSet(GPIO_PORTL_BASE, GPIO_PIN_5, GPIO_RISING_EDGE);
+
+    /* then enable interrupts for PIN 5 on Port L */
+    //GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
 
 
+    /* set a persistence of 10 cycles so that false interrupts are not triggered */
+
+    /*uint8_t persistence_cycles=0xA0;
+    gesture_sensor_write(PERSISTENCE_REG_ADDRESS, persistence_cycles);
+    persistence_cycles=0;
+    gesture_sensor_read(PERSISTENCE_REG_ADDRESS, &persistence_cycles);
+
+    UARTprintf("\r\nPersistence cycles 0x%x",persistence_cycles);*/
+
+    /* set upper and lower threshold values */
+
+    /*uint8_t lower_threshold=0, upper_threshold=10;
+
+    gesture_sensor_write(PIHT_REG_ADDRESS , upper_threshold);
+    upper_threshold=0;
+    gesture_sensor_read(PIHT_REG_ADDRESS, &upper_threshold);
+
+    gesture_sensor_write(PILT_REG_ADDRESS , lower_threshold);
+
+    gesture_sensor_read(PILT_REG_ADDRESS, &lower_threshold);
+
+    UARTprintf("\r\nLower threshold 0x%x",lower_threshold);
+    UARTprintf("\r\nUpper threshold 0x%x",upper_threshold);*/
+
+    /* have a wait time between cycles */
+    /* a wait time value of 171 will translate to 236 ms of wait time between read cycles */
+    /*uint8_t wait_time=171;
+
+    gesture_sensor_write(WAIT_TIME_REG_ADDRESS, wait_time);
+    gesture_sensor_read(WAIT_TIME_REG_ADDRESS, &wait_time);
+
+    UARTprintf("\r\nWait time 0x%x", wait_time);*/
+
+    /* power on and enable the proximity sensor; also enable the proximity interrupt and wait time between cycles */
+
+    uint8_t enable_proximity=0x05;
+
+    gesture_sensor_write(ENABLE_REG_ADDRESS, enable_proximity);
+
+    gesture_sensor_read(ENABLE_REG_ADDRESS, &enable_proximity);
+
+    UARTprintf("\r\nEnable reg value 0x%x", enable_proximity);
     /* read from the proximity register */
-    uint8_t pdata_val=0;
-    gesture_sensor_read(PDATA_ADDRESS, &pdata_val);
-    /* print value on the UART terminal */
-    UARTprintf("\r\nvalue:0x%x", pdata_val);
+   // uint8_t pdata_val;
+   // while(1){
+   gesture_sensor_read(PDATA_ADDRESS, pdata_val);
+        /* print value on the UART terminal */
+   UARTprintf("\r\nvalue:0x%x", *pdata_val);
+   // }
 
 }
 #if PROXIMITY
@@ -880,4 +977,3 @@ void __error__(char *pcFilename, uint32_t ui32Line)
 
 }
 #endif
-

@@ -129,100 +129,7 @@ BaseType_t ReadQueueLCD()
     }
     return QueueSendReturn;
 }
-void proximity_data(uint8_t pdata_val)
-{
-    //uint32_t output_clock_rate_hz;
 
-    /*output_clock_rate_hz=ROM_SysCtlClockFreqSet(
-            (SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN |
-             SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480),
-            SYSTEM_CLOCK);
-
-    ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
-    // Initialize the GPIO pins for the Launchpad
-    PinoutSet(false, false);
-
-    // Set up the UART which is connected to the virtual COM port
-    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);*/
-
-    I2C_Init();
-
-    /*uint8_t data_write=0x01;
-    I2C_write(TMP102_ADDR,data_write);
-    uint16_t datarecv;
-    I2C_read(TMP102_ADDR,&datarecv);
-    UARTprintf("\r\n1st value 0x%x",*((uint8_t*)&datarecv));
-    UARTprintf("\r\n2nd value 0x%x",*((uint8_t*)&datarecv + 1));*/
-
-    /* interrupts stuff */
-
-    /* first configure the pin as input */
-    GPIOPinTypeGPIOInput(GPIO_PORTL_BASE, GPIO_PIN_5);
-
-    /* start by enabling the master interrupt */
-    //IntMasterEnable();
-
-    /* define the handler for the GPIO interrupt */
-    //GPIOIntRegister(GPIO_PORTL_BASE, gesture_sensor_interrupt_handler);
-
-    /* set the type of interrupt */
-    //GPIOIntTypeSet(GPIO_PORTL_BASE, GPIO_PIN_5, GPIO_RISING_EDGE);
-
-    /* then enable interrupts for PIN 5 on Port L */
-    //GPIOIntEnable(GPIO_PORTL_BASE, GPIO_INT_PIN_5);
-
-
-    /* set a persistence of 10 cycles so that false interrupts are not triggered */
-
-    /*uint8_t persistence_cycles=0xA0;
-    gesture_sensor_write(PERSISTENCE_REG_ADDRESS, persistence_cycles);
-    persistence_cycles=0;
-    gesture_sensor_read(PERSISTENCE_REG_ADDRESS, &persistence_cycles);
-
-    UARTprintf("\r\nPersistence cycles 0x%x",persistence_cycles);*/
-
-    /* set upper and lower threshold values */
-
-    /*uint8_t lower_threshold=0, upper_threshold=10;
-
-    gesture_sensor_write(PIHT_REG_ADDRESS , upper_threshold);
-    upper_threshold=0;
-    gesture_sensor_read(PIHT_REG_ADDRESS, &upper_threshold);
-
-    gesture_sensor_write(PILT_REG_ADDRESS , lower_threshold);
-
-    gesture_sensor_read(PILT_REG_ADDRESS, &lower_threshold);
-
-    UARTprintf("\r\nLower threshold 0x%x",lower_threshold);
-    UARTprintf("\r\nUpper threshold 0x%x",upper_threshold);*/
-
-    /* have a wait time between cycles */
-    /* a wait time value of 171 will translate to 236 ms of wait time between read cycles */
-    /*uint8_t wait_time=171;
-
-    gesture_sensor_write(WAIT_TIME_REG_ADDRESS, wait_time);
-    gesture_sensor_read(WAIT_TIME_REG_ADDRESS, &wait_time);
-
-    UARTprintf("\r\nWait time 0x%x", wait_time);*/
-
-    /* power on and enable the proximity sensor; also enable the proximity interrupt and wait time between cycles */
-
-    uint8_t enable_proximity=0x05;
-
-    gesture_sensor_write(ENABLE_REG_ADDRESS, enable_proximity);
-
-    gesture_sensor_read(ENABLE_REG_ADDRESS, &enable_proximity);
-
-    UARTprintf("\r\nEnable reg value 0x%x", enable_proximity);
-    /* read from the proximity register */
-   // uint8_t pdata_val;
-   // while(1){
-         gesture_sensor_read(PDATA_ADDRESS, &pdata_val);
-        /* print value on the UART terminal */
-        UARTprintf("\r\nvalue:0x%x", pdata_val);
-   // }
-
-}
 
 
 /* Read the Sensor Task's queue for messages sent and received */
@@ -232,7 +139,7 @@ BaseType_t ReadQueueSensor()
 
     uint8_t proximity_value=0;
 
-    proximity_data(proximity_value);
+    proximity_data(&proximity_value);
 
     /*read from the LCD's queue */
     BaseType_t QueueReceiveSensorReturn=xQueueReceive( QueueHandle[SENSOR_TASK], &ReceivedSensorMessage, portMAX_DELAY);
