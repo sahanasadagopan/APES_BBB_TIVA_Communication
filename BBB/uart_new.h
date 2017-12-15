@@ -13,8 +13,11 @@
 #include "uart_new.h"
 
 
-typedef enum {HEARTBEAT_RECEIVED=0, HEARTBEAT_MISSED=1} heartbeat_t;
+typedef enum {HEARTBEAT_MISSED=0, HEARTBEAT_RECEIVED=1} heartbeat_t;
+
 #define NUMBER_OF_THREADS_TIVA      4
+
+
 /* this packet will be received in the UART task */
 typedef struct 
 {
@@ -25,7 +28,7 @@ typedef struct
     uint8_t sensor_data;
 
     /* eeprom data */
-    uint8_t eeprom_data;
+    uint32_t eeprom_data;
 
 }log_packet_uart_t;
 
@@ -43,4 +46,5 @@ void read_struct(int descriptor, log_packet_uart_t* recvd_struct);
 
 /* initialize UART */
 void uart_init(void);
+
 #endif
