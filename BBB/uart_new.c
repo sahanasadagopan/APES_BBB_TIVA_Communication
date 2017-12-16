@@ -16,27 +16,27 @@
 #include "uart_new.h"
 
 struct termios *configure;
-void tty_config(struct termios *con, int descriptor);
+void tty_config(struct termios *option, int descriptor);
 char *device = "/dev/ttyO2";
 int fd;
 
 
 
-void tty_config(struct termios *con, int descriptor)
+void tty_configuration(struct termios *option, int descriptor)
 {
-    tcgetattr(descriptor, con);
-    con->c_iflag &= ~(IGNBRK | BRKINT | ICRNL | INLCR | PARMRK | INPCK | ISTRIP | IXON);
-    con->c_oflag = 0;
-    con->c_lflag &= ~(ECHO | ECHONL | ICANON | IEXTEN | ISIG);
-    con->c_cc[VMIN] = 1;
-    con->c_cc[VTIME] = 0;
+    tcgetattr(descriptor, option);
+    option->c_iflag &= ~(IGNBRK | BRKINT | ICRNL | INLCR | PARMRK | INPCK | ISTRIP | IXON);
+    option->c_oflag = 0;
+    option->c_lflag &= ~(ECHO | ECHONL | ICANON | IEXTEN | ISIG);
+    option->c_cc[VMIN] = 1;
+    option->c_cc[VTIME] = 0;
 
-    if(cfsetispeed(con, B115200) || cfsetospeed(con, B115200))
+    if(cfsetispeed(option, B115200) || cfsetospeed(option, B115200))
     {
         perror("ERROR in baud set\n");
     }
 
-    if(tcsetattr(descriptor, TCSAFLUSH, con) < 0)
+    if(tcsetattr(descriptor, TCSAFLUSH, option) < 0)
     {
         perror("ERROR in set attr\n");
     }
@@ -69,7 +69,7 @@ void uart_init(void)
     if(configure==NULL){
         printf("Malloc fail");
     }
-    tty_config(configure, fd);
+    tty_configuration(configure, fd);
 }
 
 void read_string(int fd,char *string){
