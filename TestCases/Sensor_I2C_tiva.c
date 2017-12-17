@@ -38,17 +38,11 @@
 #define TMP102_ADDR         (0x48)
 
 
-// Global instance structure for the I2C master driver.
-//tI2CMInstance g_sI2CInst;
-
-// Demo Task declarations
-//void demoI2CTask(void *pvParameters);
 void demoSerialTask(void *pvParameters);
 
 int I2C_Init(void)
 {
-    // The I2C2 peripheral must be enabled before use.
-        // On GPIO PortL
+    
         ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOL);
 
         //
@@ -171,27 +165,14 @@ int main(void)
     ASSERT(output_clock_rate_hz == SYSTEM_CLOCK);
     // Initialize the GPIO pins for the Launchpad
    PinoutSet(false, false);
-
-   // Create demo task
-
-  // xTaskCreate(demoSerialTask, (const portCHAR *)"Serial",
-    //           configMINIMAL_STACK_SIZE, NULL, 1, NULL);
-
-  // vTaskStartScheduler();
     UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
     UARTprintf("\n\rconfig reg is");
     int busy=I2C_Init();
-    /*uint8_t data_write=0x01;
-    I2C_write(TMP102_ADDR,data_write);
-    uint16_t datarecv;
-    I2C_read(TMP102_ADDR,&datarecv);
-    UARTprintf("\r\n1st value 0x%x",*((uint8_t*)&datarecv));
-    UARTprintf("\r\n2nd value 0x%x",*((uint8_t*)&datarecv + 1));*/
-
+    
 
 
     /*proximity sensor*/
-   /* gesture_sensor_write(ENABLE_REG_ADDRESS, 5);
+    gesture_sensor_write(ENABLE_REG_ADDRESS, 5);
     uint8_t data;
     gesture_sensor_read(ENABLE_REG_ADDRESS, &data);
 
@@ -199,7 +180,7 @@ int main(void)
 
     data=0;
     gesture_sensor_read(PDATA_ADDRESS, &data);
-    UARTprintf("\r\n pdata value 0x%x",data);*/
+    UARTprintf("\r\n pdata value 0x%x",data);
 
     /*Gesture Sensor*/
     uint8_t enable_gesture_cmd=0x45;
@@ -209,13 +190,7 @@ int main(void)
     UARTprintf("\r\ngesture value 0x%x",data);
     //GCONFIG4<GMODE>
 
-    /*uint8_t gesture_mode=0x01;
-    gesture_sensor_write(GESTURE_MODE_REG_ADDRESS,gesture_mode);
-    gesture_sensor_read(GESTURE_MODE_REG_ADDRESS, &data);
-    UARTprintf("\r\ngesture MODE value 0x%x",data);*/
-
-    //gesture_sensor_read(GPENTH_ADDRESS, &data);
-    //UARTprintf("\r\ngesture PLENGTH value 0x%x",data);
+    
 
     gesture_sensor_read(GESTURE_UP_REG_ADDRESS, &data);
     UARTprintf("\r\ngesture up value 0x%x",data);
@@ -236,18 +211,6 @@ int main(void)
     UARTprintf("\r\ngesture LEVEL value 0x%x",data);
 }
 
-/*void demoSerialTask(void *pvParameters)
-{
-    // Set up the UART which is connected to the virtual COM port
-    UARTStdioConfig(0, 57600, SYSTEM_CLOCK);
-
-
-    for (;;)
-    {
-        UARTprintf("\r\nHello, world from FreeRTOS 9.0!");
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
-}*/
 
 void __error__(char *pcFilename, uint32_t ui32Line)
 {
