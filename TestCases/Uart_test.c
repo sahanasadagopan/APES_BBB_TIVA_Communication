@@ -97,10 +97,11 @@ int main()
     char data[25];
     strcpy(data,"Ujksdhfkjhds");
     send_string(fd,data);
-    //send_byte(fd,data);
+    send_byte(fd,data);
     while(1){
         read_byte(fd,received);
     }
+    
     //read_string(fd,received);
     
     
